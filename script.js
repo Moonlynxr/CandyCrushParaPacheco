@@ -4,7 +4,10 @@
 const BOARD_SIZE = 8;
 const CANDY_TYPES = ['🍭','🍬','🍫','🍩','🍪','🧁'];
 const INITIAL_MOVES = 30;
-const TARGET_SCORE = 2000; // objetivo simple para “ganar”
+const TARGET_SCORE = 2000;
+
+// Mensajes de combo
+const COMBO_MESSAGES = ['¡Bien!', '¡Genial!', '¡Increíble!', '¡Brutal!', '¡Espectacular!', '🔥 ¡COMBO! 🔥'];
 
 // ---------------------------
 // Estado
@@ -14,25 +17,29 @@ let score = 0;
 let moves = INITIAL_MOVES;
 let selectedCandy = null;
 let isProcessing = false;
-let highScore = Number(localStorage.getItem('cc_highscore') || 0);
+let highScore = 0;
+let comboCount = 0;
 
-// Gestos
+// Gestos mejorados
 let dragStart = null;
+const SWIPE_THRESHOLD = 30;
 
 // ---------------------------
 // DOM
 // ---------------------------
-const boardElement   = document.getElementById('board');
-const scoreElement   = document.getElementById('score');
-const movesElement   = document.getElementById('moves');
-const resetBtn       = document.getElementById('resetBtn');
-const hintBtn        = document.getElementById('hintBtn');
-const shuffleBtn     = document.getElementById('shuffleBtn');
-const gameOverEl     = document.getElementById('gameOver');
-const finalScoreEl   = document.getElementById('finalScore');
-const gameOverTitle  = document.getElementById('gameOverTitle');
-const highScoreEl    = document.getElementById('highScore');
-const targetEl       = document.getElementById('target');
+const boardElement = document.getElementById('board');
+const scoreElement = document.getElementById('score');
+const movesElement = document.getElementById('moves');
+const scoreItem = document.getElementById('scoreItem');
+const movesItem = document.getElementById('movesItem');
+const resetBtn = document.getElementById('resetBtn');
+const hintBtn = document.getElementById('hintBtn');
+const shuffleBtn = document.getElementById('shuffleBtn');
+const gameOverEl = document.getElementById('gameOver');
+const finalScoreEl = document.getElementById('finalScore');
+const gameOverTitle = document.getElementById('gameOverTitle');
+const highScoreEl = document.getElementById('highScore');
+const targetEl = document.getElementById('target');
 
 // ---------------------------
 // Inicializar
@@ -43,6 +50,7 @@ function initGame() {
   moves = INITIAL_MOVES;
   selectedCandy = null;
   isProcessing = false;
+  comboCount = 0;
 
   targetEl.textContent = TARGET_SCORE;
   updateScore();
@@ -85,12 +93,12 @@ function renderBoard() {
       el.dataset.col = col;
       el.textContent = board[row][col];
 
-      // Clic selección / swap
+      // Eventos
       el.addEventListener('click', () => handleClick(row, col));
-
-      // Drag & drop / swipe
       el.addEventListener('pointerdown', (e) => onPointerDown(e, row, col));
-      el.addEventListener('pointerup',   (e) => onPointerUp(e, row, col));
+      el.addEventListener('pointermove', (e) => onPointerMove(e));
+      el.addEventListener('pointerup', (e) => onPointerUp(e, row, col));
+      el.addEventListener('pointercancel', () => dragStart = null);
 
       boardElement.appendChild(el);
     }
@@ -142,34 +150,52 @@ function isAdjacent(a, b) {
 }
 
 // ---------------------------
-// Input: Gestos (pointer)
+// Input: Gestos mejorados
 // ---------------------------
 function onPointerDown(e, row, col) {
   if (isProcessing || moves <= 0) return;
-  dragStart = { row, col, x: e.clientX, y: e.clientY };
+  e.preventDefault();
+  dragStart = { 
+    row, col, 
+    x: e.clientX, 
+    y: e.clientY,
+    hasMoved: false
+  };
+}
+
+function onPointerMove(e) {
+  if (!dragStart) return;
+  const dx = Math.abs(e.clientX - dragStart.x);
+  const dy = Math.abs(e.clientY - dragStart.y);
+  if (dx > 5 || dy > 5) {
+    dragStart.hasMoved = true;
+  }
 }
 
 function onPointerUp(e, row, col) {
   if (!dragStart) return;
+  
   const dx = e.clientX - dragStart.x;
   const dy = e.clientY - dragStart.y;
+  const absX = Math.abs(dx);
+  const absY = Math.abs(dy);
 
-  const absX = Math.abs(dx), absY = Math.abs(dy);
-  if (Math.max(absX, absY) < 12) { // tap corto → tratar como clic
-    handleClick(row, col);
+  if (!dragStart.hasMoved || Math.max(absX, absY) < SWIPE_THRESHOLD) {
+    handleClick(dragStart.row, dragStart.col);
   } else {
-    // determinar dirección mayoritaria
     let target = { row: dragStart.row, col: dragStart.col };
     if (absX > absY) {
       target.col += dx > 0 ? 1 : -1;
     } else {
       target.row += dy > 0 ? 1 : -1;
     }
-    // validación de límites
-    if (
-      target.row >= 0 && target.row < BOARD_SIZE &&
-      target.col >= 0 && target.col < BOARD_SIZE
-    ) {
+    
+    if (target.row >= 0 && target.row < BOARD_SIZE &&
+        target.col >= 0 && target.col < BOARD_SIZE) {
+      if (selectedCandy) {
+        highlightCandy(selectedCandy, false);
+        selectedCandy = null;
+      }
       swapCandies({ row: dragStart.row, col: dragStart.col }, target);
     }
   }
@@ -194,7 +220,8 @@ async function swapCandies(a, b) {
   let matches = findMatches();
   if (matches.length > 0) {
     moves--;
-    updateMoves();
+    updateMoves(true);
+    comboCount = 0;
     await resolveMatchesWithCascades(matches);
 
     // ganar / perder
@@ -272,7 +299,7 @@ function dedupeMatches(matches) {
   for (const group of matches) {
     for (const { row, col } of group) marks[row][col] = true;
   }
-  // reconstituye grupos contiguos (simple: devolver celdas marcadas como lista única)
+  // reconstituye grupos contiguos
   const flat = [];
   for (let r = 0; r < BOARD_SIZE; r++) {
     for (let c = 0; c < BOARD_SIZE; c++) {
@@ -287,13 +314,27 @@ async function resolveMatchesWithCascades(initialMatches) {
   let matches = initialMatches;
 
   while (matches.length > 0) {
-    // animar
+    comboCount++;
+    
+    // Animación y partículas
     for (const { row, col } of matches[0]) {
-      getCandyEl(row, col)?.classList.add('matched');
+      const el = getCandyEl(row, col);
+      if (el) {
+        el.classList.add('matched');
+        createParticles(el, board[row][col]);
+      }
     }
-    // score con multiplicador por cascada
-    score += matches[0].length * 10 * cascade;
-    updateScore();
+
+    // Score con multiplicador por cascada
+    const points = matches[0].length * 10 * cascade;
+    score += points;
+    updateScore(true);
+
+    // Mensaje de combo
+    if (comboCount > 1 || matches[0].length >= 4) {
+      showComboMessage(comboCount);
+    }
+
     await sleep(280);
 
     // eliminar
@@ -311,6 +352,47 @@ async function resolveMatchesWithCascades(initialMatches) {
     matches = findMatches();
     cascade++;
   }
+}
+
+// ---------------------------
+// Efectos visuales
+// ---------------------------
+function createParticles(element, emoji) {
+  const rect = element.getBoundingClientRect();
+  const boardRect = boardElement.getBoundingClientRect();
+  const particleCount = 6;
+
+  for (let i = 0; i < particleCount; i++) {
+    const particle = document.createElement('div');
+    particle.className = 'particle';
+    particle.textContent = emoji;
+    
+    const angle = (Math.PI * 2 * i) / particleCount;
+    const distance = 40 + Math.random() * 30;
+    const tx = Math.cos(angle) * distance;
+    const ty = Math.sin(angle) * distance;
+    
+    particle.style.setProperty('--tx', `${tx}px`);
+    particle.style.setProperty('--ty', `${ty}px`);
+    particle.style.left = `${rect.left - boardRect.left + rect.width/2}px`;
+    particle.style.top = `${rect.top - boardRect.top + rect.height/2}px`;
+    
+    boardElement.appendChild(particle);
+    
+    setTimeout(() => particle.remove(), 800);
+  }
+}
+
+function showComboMessage(combo) {
+  const msg = document.createElement('div');
+  msg.className = 'combo-message';
+  const msgIndex = Math.min(combo - 1, COMBO_MESSAGES.length - 1);
+  msg.textContent = COMBO_MESSAGES[msgIndex];
+  
+  const container = document.querySelector('.game-container');
+  container.appendChild(msg);
+  
+  setTimeout(() => msg.remove(), 1200);
 }
 
 function dropCandies() {
@@ -381,7 +463,7 @@ function shuffleBoard() {
       board[r][c] = flat[r * BOARD_SIZE + c];
     }
   }
-  // evitar matches “gratis” tras mezclar
+  // evitar matches "gratis" tras mezclar
   if (findMatches().length > 0) shuffleBoard();
   renderBoard();
 }
@@ -402,7 +484,7 @@ function showHint() {
   getCandyEl(a.row, a.col)?.classList.add('hint');
   getCandyEl(b.row, b.col)?.classList.add('hint');
 
-  hintTimeout = setTimeout(clearHint, 1500);
+  hintTimeout = setTimeout(clearHint, 2000);
 }
 
 function clearHint() {
@@ -416,11 +498,15 @@ function clearHint() {
 // ---------------------------
 // UI / Estado
 // ---------------------------
-function updateScore() {
+function updateScore(animate = false) {
   scoreElement.textContent = score;
+  if (animate) {
+    scoreItem.classList.remove('pulse');
+    void scoreItem.offsetWidth; // trigger reflow
+    scoreItem.classList.add('pulse');
+  }
   if (score > highScore) {
     highScore = score;
-    localStorage.setItem('cc_highscore', String(highScore));
     updateHighScore();
   }
 }
@@ -429,13 +515,18 @@ function updateHighScore() {
   highScoreEl.textContent = highScore;
 }
 
-function updateMoves() {
+function updateMoves(animate = false) {
   movesElement.textContent = moves;
+  if (animate) {
+    movesItem.classList.remove('pulse');
+    void movesItem.offsetWidth; // trigger reflow
+    movesItem.classList.add('pulse');
+  }
 }
 
 function endGame(won) {
   finalScoreEl.textContent = score;
-  gameOverTitle.textContent = won ? '¡Nivel Superado! 🎉' : '¡Juego Terminado!';
+  gameOverTitle.textContent = won ? '🎉 ¡Nivel Superado! 🎉' : '😢 ¡Juego Terminado!';
   gameOverEl.classList.remove('hidden');
 }
 
@@ -452,8 +543,9 @@ resetBtn.addEventListener('click', () => {
 });
 
 hintBtn.addEventListener('click', showHint);
+
 shuffleBtn.addEventListener('click', () => {
-  if (!isProcessing) {
+  if (!isProcessing && moves > 0) {
     shuffleBoard();
     clearHint();
   }
@@ -464,5 +556,12 @@ document.getElementById('playAgainBtn').addEventListener('click', () => {
   initGame();
 });
 
-// start
+// Prevenir zoom en doble tap en móviles
+document.addEventListener('dblclick', (e) => {
+  e.preventDefault();
+}, { passive: false });
+
+// ---------------------------
+// Iniciar juego
+// ---------------------------
 initGame();
