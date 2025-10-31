@@ -2,8 +2,8 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Candy Crush Pro v2</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+  <title>Candy Crush Pro v3</title>
   <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
@@ -11,11 +11,11 @@
     <header>
       <h1>🍭 Candy Crush Pro 🍬</h1>
       <div class="score-board">
-        <div class="score-item">
+        <div class="score-item" id="scoreItem">
           <span class="label">Puntos:</span>
           <span id="score" class="value">0</span>
         </div>
-        <div class="score-item">
+        <div class="score-item" id="movesItem">
           <span class="label">Movimientos:</span>
           <span id="moves" class="value">30</span>
         </div>
@@ -29,26 +29,22 @@
         </div>
       </div>
     </header>
-
     <div class="game-container">
       <div id="board" class="board" aria-label="Tablero de dulces" role="grid"></div>
     </div>
-
     <div class="controls">
-      <button id="resetBtn" class="btn">🔄 Nuevo Juego</button>
+      <button id="resetBtn" class="btn">🔄 Nuevo</button>
       <button id="hintBtn" class="btn btn-ghost">💡 Pista</button>
       <button id="shuffleBtn" class="btn btn-ghost">🔀 Mezclar</button>
     </div>
-
     <div id="gameOver" class="game-over hidden" role="dialog" aria-modal="true">
       <div class="game-over-content">
         <h2 id="gameOverTitle">¡Juego Terminado!</h2>
         <p>Puntuación Final: <span id="finalScore">0</span></p>
-        <button id="playAgainBtn" class="btn">Jugar de Nuevo</button>
+        <button id="playAgainBtn" class="btn">🎮 Jugar de Nuevo</button>
       </div>
     </div>
   </div>
-
   <script src="script.js"></script>
 </body>
 </html>
